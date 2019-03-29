@@ -13,7 +13,7 @@
 
     This version is built to more closely resemble the NES than
     the original Pong machines or the Atari 2600 in terms of
-    resolution, though in widescreen (16:9) so it looks nicer on 
+    resolution, though in widescreen (16:9) so it looks nicer on
     modern systems.
 ]]
 
@@ -77,9 +77,10 @@ function love.load()
     sounds = {
         ['paddle_hit'] = love.audio.newSource('sounds/paddle_hit.wav', 'static'),
         ['score'] = love.audio.newSource('sounds/score.wav', 'static'),
-        ['wall_hit'] = love.audio.newSource('sounds/wall_hit.wav', 'static')
+        ['wall_hit'] = love.audio.newSource('sounds/wall_hit.wav', 'static'),
+        ['supershoot_hit'] = love.audio.newSource('sounds/supershoot_hit.wav', 'static')
     }
-    
+
     -- initialize our virtual resolution, which will be rendered within our
     -- actual window no matter its dimensions
     push:setupScreen(VIRTUAL_WIDTH, VIRTUAL_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT, {
@@ -107,6 +108,13 @@ function love.load()
     -- player who won the game; not set to a proper value until we reach
     -- that state in the game
     winningPlayer = 0
+
+    --the player 2 has some help to win the AI in each collision we could
+    --set a random variable to higly increase the speed of the ball if the
+    --random variable is in our favour.Here we initialize that variable.
+    supershoot = false
+    supershootdice1 = 0
+    supershootdice2 = 0
 
     -- the state of our game; can be any of the following:
     -- 1. 'start' (the beginning of the game, before first serve)
@@ -149,6 +157,9 @@ function love.update(dt)
         -- slightly increasing it, then altering the dy based on the position
         -- at which it collided, then playing a sound effect
         if ball:collides(player1) then
+            supershoot = false
+            supershootdice1 = 0
+            supershootdice2 = 0
             ball.dx = -ball.dx * 1.03
             ball.x = player1.x + 5
 
@@ -162,17 +173,38 @@ function love.update(dt)
             sounds['paddle_hit']:play()
         end
         if ball:collides(player2) then
-            ball.dx = -ball.dx * 1.03
             ball.x = player2.x - 4
-
-            -- keep velocity going in the same direction, but randomize it
-            if ball.dy < 0 then
-                ball.dy = -math.random(10, 150)
+            supershootdice1 = math.random(1, 6)
+            supershootdice2 = math.random(1, 6)
+            if supershootdice1 == supershootdice2 then
+              supershoot = true
+              ball.dx =  -ball.dx*math.random(200, 350)/ball.dx
             else
-                ball.dy = math.random(10, 150)
+              ball.x = player2.x - 4
+              ball.dx = -ball.dx * 1.03
             end
 
-            sounds['paddle_hit']:play()
+            -- keep velocity going in the same direction, but randomize it and
+            -- considering supershoot
+            if ball.dy < 0 then
+                if supershoot == true then
+                  ball.dy = -math.random(200, 350)
+                else
+                  ball.dy = -math.random(10, 150)
+                end
+            else
+                if supershoot == true then
+                  ball.dy = math.random (200, 350)
+                else
+                  ball.dy = math.random(10, 150)
+                end
+            end
+
+            if supershoot == true then
+              sounds['supershoot_hit']:play()
+            else
+              sounds['paddle_hit']:play()
+            end
         end
 
         -- detect upper and lower screen boundary collision, playing a sound
@@ -196,6 +228,7 @@ function love.update(dt)
             servingPlayer = 1
             player2Score = player2Score + 1
             sounds['score']:play()
+            supershoot = false
 
             -- if we've reached a score of 10, the game is over; set the
             -- state to done so we can show the victory message
@@ -215,6 +248,7 @@ function love.update(dt)
             servingPlayer = 2
             player1Score = player1Score + 1
             sounds['score']:play()
+            supershoot = false
 
             -- if we've reached a score of 10, the game is over; set the
             -- state to done so we can show the victory message
@@ -233,9 +267,9 @@ function love.update(dt)
     -- paddles can move no matter what state we're in
     --
     -- player 1
-    if love.keyboard.isDown('w') then
+    if ball.y < (player1.y + player1.height/2) then
         player1.dy = -PADDLE_SPEED
-    elseif love.keyboard.isDown('s') then
+    elseif ball.y > (player1.y + player1.height/2) then
         player1.dy = PADDLE_SPEED
     else
         player1.dy = 0
@@ -308,7 +342,7 @@ function love.draw()
     push:apply('start')
 
     love.graphics.clear(40, 45, 52, 255)
-    
+
     -- render different things depending on which part of the game we're in
     if gameState == 'start' then
         -- UI messages
@@ -318,7 +352,7 @@ function love.draw()
     elseif gameState == 'serve' then
         -- UI messages
         love.graphics.setFont(smallFont)
-        love.graphics.printf('Player ' .. tostring(servingPlayer) .. "'s serve!", 
+        love.graphics.printf('Player ' .. tostring(servingPlayer) .. "'s serve!",
             0, 10, VIRTUAL_WIDTH, 'center')
         love.graphics.printf('Press Enter to serve!', 0, 20, VIRTUAL_WIDTH, 'center')
     elseif gameState == 'play' then
@@ -334,13 +368,19 @@ function love.draw()
 
     -- show the score before ball is rendered so it can move over the text
     displayScore()
-    
+
     player1:render()
     player2:render()
     ball:render()
 
     -- display FPS for debugging; simply comment out to remove
     displayFPS()
+
+    -- display if there is a supershoot
+    displaySUPERSHOOT()
+
+    -- display the dice results
+    displayDices()
 
     -- end our drawing to push
     push:apply('end')
@@ -366,4 +406,21 @@ function displayFPS()
     love.graphics.setFont(smallFont)
     love.graphics.setColor(0, 255, 0, 255)
     love.graphics.print('FPS: ' .. tostring(love.timer.getFPS()), 10, 10)
+end
+
+function displaySUPERSHOOT()
+    love.graphics.setFont(smallFont)
+    if supershoot == true then
+      love.graphics.setColor(225, 100, 15, 255)
+    else
+      love.graphics.setColor(225, 100, 15, 0)
+    end
+    love.graphics.print('SUPERSHOOT', 10, 20)
+end
+function displayDices()
+    -- simple FPS display across all states
+    love.graphics.setFont(smallFont)
+    love.graphics.setColor(0, 255, 45, 255)
+    love.graphics.print('Dice1: ' .. supershootdice1, 400, 10)
+    love.graphics.print('Dice2: ' .. supershootdice2, 400, 20)
 end
